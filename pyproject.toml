@@ -1,0 +1,27 @@
+[project]
+name = "ml-project"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Husseinch24", email = "hussein_chalhoub@hotmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "joblib>=1.5.3",
+    "mlflow>=3.7.0",
+    "numpy>=2.3.5",
+    "omegaconf>=2.3.0",
+    "pandas>=2.3.3",
+    "pyarrow>=22.0.0",
+    "pytest>=9.0.2",
+    "scikit-learn>=1.8.0",
+    "shap>=0.49.1",
+]
+
+[project.scripts]
+ml-project = "ml_project:main"
+
+[build-system]
+requires = ["uv_build>=0.8.19,<0.9.0"]
+build-backend = "uv_build"
