@@ -15,9 +15,11 @@ def validate_columns(df, required_cols, is_train=True):
 def handle_missing_values(df):
     """Drop missing location data and fill missing passenger_count."""
     location_cols = ['pickup_latitude','pickup_longitude','dropoff_latitude','dropoff_longitude']
-    df = df.dropna(subset=location_cols)
+    # Make an explicit copy after dropping to avoid chained-assignment issues
+    df = df.dropna(subset=location_cols).copy()
     if 'passenger_count' in df.columns:
-        df['passenger_count'].fillna(1, inplace=True)
+        # Avoid inplace fill on a possible view; assign back instead
+        df['passenger_count'] = df['passenger_count'].fillna(1)
     return df
 
 # --- Coordinate validation ---
@@ -60,7 +62,7 @@ def add_time_features(df):
 def remove_dupes(df):
     """Remove duplicate rows, preferring 'id' if present."""
     subset = ['id'] if 'id' in df.columns else None
-    return df.drop_duplicates(subset=subset)
+    return df.drop_duplicates(keep='first', subset='id')
 
 # --- Full preprocessing pipeline ---
 def preprocess(df, is_train=True):
