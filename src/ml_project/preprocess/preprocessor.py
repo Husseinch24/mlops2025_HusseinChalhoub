@@ -31,7 +31,11 @@ class Preprocessor:
         base.add('trip_duration') if is_train else None
         return base
 
-    def validate_schema(self, df: pd.DataFrame, is_train: bool = True) -> pd.DataFrame:
+    def validate_schema(self, df: pd.DataFrame, is_train: bool | None = None) -> pd.DataFrame:
+        # If is_train isn't specified, fall back to the instance setting
+        if is_train is None:
+            is_train = self.is_train
+
         missing = self._required_columns(is_train).difference(df.columns)
         if missing:
             raise ValueError(f"Missing required columns: {sorted(missing)}")

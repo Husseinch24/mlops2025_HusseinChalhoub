@@ -80,38 +80,48 @@ class FeatureEngineer:
 
 
 
-    def transform_categoricals(self, df, fit):
+    def transform_categoricals(self, df: pd.DataFrame, fit: bool) -> pd.DataFrame:
+        """Return a DataFrame with original categorical columns replaced by one-hot columns.
+
+        Missing categorical values are filled with a sentinel so the encoder learns an explicit
+        missing category. The method keeps all non-categorical columns intact.
+        """
         cat_cols = df.select_dtypes(include=["object"]).columns.tolist()
 
-        # If no categoricals, simply return X,y
+        # If no categorical columns, return dataframe unchanged
         if not cat_cols:
-            y = df["trip_duration"].values if "trip_duration" in df.columns else None
-            df = df.drop(columns=["trip_duration"], errors="ignore")
-            X = df.apply(pd.to_numeric, errors="coerce").fillna(0).astype("float32").values
-            return X, y
+            return df
 
-        # Fit or transform encoding
+        # Fill missing values with a sentinel so the encoder creates a column for missing
+        df_cat = df[cat_cols].fillna("__MISSING__")
+
+        # Fit or transform encoding (use dense output to create a DataFrame)
         if fit or self._encoder is None:
-            self._encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=True)
-            encoded = self._encoder.fit_transform(df[cat_cols])
+            # sklearn changed the parameter name from `sparse` to `sparse_output` in newer versions
+            try:
+                self._encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+            except TypeError:
+                self._encoder = OneHotEncoder(handle_unknown="ignore", sparse=False)
+            encoded = self._encoder.fit_transform(df_cat)
         else:
-            encoded = self._encoder.transform(df[cat_cols])
+            encoded = self._encoder.transform(df_cat)
 
-        # Drop original categorical columns
+        # Get feature names (compat with different sklearn versions)
+        try:
+            feat_names = self._encoder.get_feature_names_out(cat_cols)
+        except AttributeError:
+            feat_names = []
+            for i, col in enumerate(cat_cols):
+                cats = self._encoder.categories_[i]
+                feat_names.extend([f"{col}_{c}" for c in cats])
+
+        # Build DataFrame for encoded features and concatenate
+        encoded_df = pd.DataFrame(encoded, columns=feat_names, index=df.index)
+
         df = df.drop(columns=cat_cols)
+        df = pd.concat([df, encoded_df], axis=1)
 
-        # Extract target if present
-        y = df["trip_duration"].values if "trip_duration" in df.columns else None
-        df = df.drop(columns=["trip_duration"], errors="ignore")
-
-        # Convert numeric columns to valid dtype
-        df = df.apply(pd.to_numeric, errors="coerce").fillna(0).astype("float32")
-        numeric_data = df.values  # OK now
-
-        # Combine dense numeric + sparse categorical
-        X = sparse.hstack([numeric_data, encoded], format="csr")
-
-        return X, y
+        return df
 
 
 
@@ -143,18 +153,29 @@ class FeatureEngineer:
     ):
         df = self.add_distance_column(df)
         df = self.enrich_datetime(df)
-        # ---- Apply categorical encoding first ----
-        X, y = self.transform_categoricals(df, fit=fit)
 
-        # ---- Normalize numeric columns inside the sparse matrix ----
-        # standard scaler must be applied before hstack, so we do this on raw numeric data
+        # ---- Apply categorical encoding first (returns DataFrame) ----
+        df = self.transform_categoricals(df, fit=fit)
+
+        # Extract target if present
+        y = None
+        if "trip_duration" in df.columns:
+            y = pd.Series(df["trip_duration"].values, index=df.index)
+            df = df.drop(columns=["trip_duration"], errors="ignore")
+
+        X = df.copy()
+
+        # ---- Normalize numeric columns in the DataFrame ----
+        numeric_cols = X.select_dtypes(include=[np.number]).columns.tolist()
+
         if fit or self._scaler is None:
-            self._scaler = StandardScaler(with_mean=False)  # sparse-safe
-            X = self._scaler.fit_transform(X)
+            self._scaler = StandardScaler()
+            if numeric_cols:
+                X[numeric_cols] = self._scaler.fit_transform(X[numeric_cols])
         else:
-            X = self._scaler.transform(X)
+            if numeric_cols:
+                X[numeric_cols] = self._scaler.transform(X[numeric_cols])
 
-        # There are no DataFrame columns anymore, so return feature names from encoder + numeric
-        cols = []
-        return X, y, cols
+        cols = X.columns.tolist()
+        return X.reset_index(drop=True), y, cols
 
