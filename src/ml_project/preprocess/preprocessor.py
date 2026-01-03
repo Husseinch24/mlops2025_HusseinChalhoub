@@ -20,7 +20,7 @@ class Preprocessor:
     # ----------------------------------------------------
     # Validation
     # ----------------------------------------------------
-    def _required_columns(self):
+    def _required_columns(self, is_train: bool = True) -> set:
         base = {
             'pickup_latitude',
             'pickup_longitude',
@@ -28,10 +28,11 @@ class Preprocessor:
             'dropoff_longitude',
             'pickup_datetime'
         }
-        return base | {'trip_duration'} if self.is_train else base
+        base.add('trip_duration') if is_train else None
+        return base
 
-    def validate_schema(self, df: pd.DataFrame) -> pd.DataFrame:
-        missing = self._required_columns().difference(df.columns)
+    def validate_schema(self, df: pd.DataFrame, is_train: bool = True) -> pd.DataFrame:
+        missing = self._required_columns(is_train).difference(df.columns)
         if missing:
             raise ValueError(f"Missing required columns: {sorted(missing)}")
         return df

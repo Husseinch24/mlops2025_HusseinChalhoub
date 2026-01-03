@@ -14,7 +14,7 @@ class BatchPredictor:
         self.model = model
 
     @staticmethod
-    def feature_engineering(df: pd.DataFrame, fit: bool = False, save: bool = False, is_train: bool = False):
+    def feature_engineerin1g(df: pd.DataFrame, fit: bool = False, save: bool = False, is_train: bool = False):
         """
         Replace your previous feature_engineering function from scripts here.
         This should transform the dataframe and return X, y (or None), and feature columns.

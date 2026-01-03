@@ -1,7 +1,7 @@
 import joblib
 import mlflow
 
-from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
@@ -14,7 +14,6 @@ class RegressionTrainer:
     DEFAULT_CONFIG = {
         "linear": {},
         "ridge": {"alpha": 1.0},
-        "lasso": {"alpha": 0.1},
         "rf": {"n_estimators": 10, "max_depth": 12, "n_jobs": -1},
         "gb": {"n_estimators": 10, "max_depth": 3, "learning_rate": 0.1},
     }
@@ -64,7 +63,6 @@ class RegressionTrainer:
         return {
             "linear": LinearRegression(**self.config.get("linear", {})),
             "ridge": Ridge(**self.config.get("ridge", {})),
-            "lasso": Lasso(**self.config.get("lasso", {})),
             "rf": RandomForestRegressor(**self.config.get("rf", {})),
             "gb": GradientBoostingRegressor(**self.config.get("gb", {})),
         }

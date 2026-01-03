@@ -1,7 +1,10 @@
 import numpy as np
 import pandas as pd
 
+from scipy import sparse
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+
 
 
 class FeatureEngineer:
@@ -74,32 +77,43 @@ class FeatureEngineer:
     # ------------------------------------------------------------------
     # Categorical encoding
     # ------------------------------------------------------------------
-    def transform_categoricals(
-        self, df: pd.DataFrame, fit: bool = False
-    ) -> pd.DataFrame:
+
+
+
+    def transform_categoricals(self, df, fit):
         cat_cols = df.select_dtypes(include=["object"]).columns.tolist()
 
+        # If no categoricals, simply return X,y
         if not cat_cols:
-            return df
+            y = df["trip_duration"].values if "trip_duration" in df.columns else None
+            df = df.drop(columns=["trip_duration"], errors="ignore")
+            X = df.apply(pd.to_numeric, errors="coerce").fillna(0).astype("float32").values
+            return X, y
 
+        # Fit or transform encoding
         if fit or self._encoder is None:
-            self._encoder = OneHotEncoder(
-                handle_unknown="ignore", sparse_output=False
-            )
+            self._encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=True)
             encoded = self._encoder.fit_transform(df[cat_cols])
         else:
             encoded = self._encoder.transform(df[cat_cols])
 
-        encoded_df = pd.DataFrame(
-            encoded,
-            columns=self._encoder.get_feature_names_out(cat_cols),
-            index=df.index,
-        )
-
+        # Drop original categorical columns
         df = df.drop(columns=cat_cols)
-        df = pd.concat([df, encoded_df], axis=1)
 
-        return df
+        # Extract target if present
+        y = df["trip_duration"].values if "trip_duration" in df.columns else None
+        df = df.drop(columns=["trip_duration"], errors="ignore")
+
+        # Convert numeric columns to valid dtype
+        df = df.apply(pd.to_numeric, errors="coerce").fillna(0).astype("float32")
+        numeric_data = df.values  # OK now
+
+        # Combine dense numeric + sparse categorical
+        X = sparse.hstack([numeric_data, encoded], format="csr")
+
+        return X, y
+
+
 
     # ------------------------------------------------------------------
     # Numeric normalization
@@ -129,16 +143,18 @@ class FeatureEngineer:
     ):
         df = self.add_distance_column(df)
         df = self.enrich_datetime(df)
-        df = self.transform_categoricals(df, fit=fit)
+        # ---- Apply categorical encoding first ----
+        X, y = self.transform_categoricals(df, fit=fit)
 
-        y = None
-        if is_train and "trip_duration" in df.columns:
-            # extract target before normalizing so y remains in original units
-            y = df["trip_duration"].copy()
-            df = df.drop(columns=["trip_duration"])
+        # ---- Normalize numeric columns inside the sparse matrix ----
+        # standard scaler must be applied before hstack, so we do this on raw numeric data
+        if fit or self._scaler is None:
+            self._scaler = StandardScaler(with_mean=False)  # sparse-safe
+            X = self._scaler.fit_transform(X)
+        else:
+            X = self._scaler.transform(X)
 
-        df = self.normalize_numeric(df, fit=fit)
+        # There are no DataFrame columns anymore, so return feature names from encoder + numeric
+        cols = []
+        return X, y, cols
 
-        cols = df.columns.tolist()
-
-        return df, y, cols
