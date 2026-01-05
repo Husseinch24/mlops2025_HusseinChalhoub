@@ -59,10 +59,14 @@ def add_time_features(df):
     return df
 
 # --- Duplicates ---
-def remove_dupes(df):
-    """Remove duplicate rows, preferring 'id' if present."""
-    subset = ['id'] if 'id' in df.columns else None
-    return df.drop_duplicates(keep='first', subset='id')
+def remove_dupes(df: pd.DataFrame) -> pd.DataFrame:
+    # If 'id' exists, prefer it for deduplication
+    if "id" in df.columns:
+        return df.drop_duplicates(subset="id", keep="first")
+
+    # Otherwise drop fully duplicated rows
+    return df.drop_duplicates(keep="first")
+
 
 # --- Full preprocessing pipeline ---
 def preprocess(df, is_train=True):
