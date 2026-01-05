@@ -55,13 +55,17 @@ class FeatureEngineer:
         df_cat = df[cat_cols].fillna("Unknown").astype(str)
 
         if fit or self._encoder is None:
-            self._encoder = OneHotEncoder(handle_unknown="ignore", sparse=False)
+            self._encoder = OneHotEncoder(
+                handle_unknown="ignore",
+                sparse_output=False
+            )
             self._encoder.fit(df_cat)
             self._cat_columns_ = self._encoder.get_feature_names_out(cat_cols)
 
         encoded = self._encoder.transform(df_cat)
 
         return pd.DataFrame(encoded, columns=self._cat_columns_, index=df.index)
+
 
     # ---------------- Numeric ----------------
     def normalize_numeric(self, df: pd.DataFrame, fit: bool = False) -> pd.DataFrame:
