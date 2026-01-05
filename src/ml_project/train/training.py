@@ -20,7 +20,7 @@ class RegressionTrainer:
         self.config = config or self.DEFAULT_CONFIG
         self.best_model = None
         self.best_model_name = None
-        self.best_score = float("inf") if metric in ("mae", "rmse") else -float("inf")
+        self.best_score = self._initialize_score(metric)
         self.model_metrics = {}
 
     @staticmethod
@@ -45,7 +45,8 @@ class RegressionTrainer:
             "gb": GradientBoostingRegressor(**self.config.get("gb", {})),
         }
 
-    def _is_better(self, metric, candidate, best):
+    @staticmethod
+    def _is_better(metric, candidate, best):
         if metric in ("mae", "rmse"):
             return candidate < best
         return candidate > best
@@ -93,3 +94,9 @@ class RegressionTrainer:
     @staticmethod
     def load_model(filepath="best_model.pkl"):
         return joblib.load(filepath)
+    
+    @staticmethod
+    def _initialize_score(metric: str) -> float:
+        if metric in ("mae", "rmse"):
+            return float("inf")
+        return -float("inf")
