@@ -20,7 +20,7 @@ def load_config(yaml_path: str) -> dict:
 
 def main():
     # Path to your YAML config
-    config_path = "config.yaml"
+    config_path = "config/config.yaml"
     config = load_config(config_path)
 
     # Ensure directories exist
