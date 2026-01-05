@@ -3,30 +3,25 @@
 Entry point for executing the NYC Taxi Trip Duration ML pipeline.
 
 This script:
- - Loads a config dictionary
+ - Loads a config dictionary from a YAML file
  - Instantiates TaxiPipeline
  - Runs training, model persistence, and batch inference
 """
 
 import os
-from src.ml_project.pipelines.pipeline import TaxiPipeline  # update if pipeline file path differs
+import yaml
+from src.ml_project.pipelines.pipeline import TaxiPipeline  # update path if needed
+
+def load_config(yaml_path: str) -> dict:
+    """Load YAML configuration file."""
+    with open(yaml_path, "r") as f:
+        config = yaml.safe_load(f)
+    return config
 
 def main():
-    # Example configuration dictionary; update paths as needed
-    config = {
-    "paths": {
-        "train_csv": "src/ml_project/data/train.csv",
-        "test_csv": "src/ml_project/data/test.csv",
-        "artifact_dir": "artifacts/models",
-        "output_dir": "artifacts/predictions"
-    },
-    "train": {
-        "metric": "rmse",
-        "test_size": 0.2,
-        "seed": 42
-    }
-}
-
+    # Path to your YAML config
+    config_path = "config.yaml"
+    config = load_config(config_path)
 
     # Ensure directories exist
     os.makedirs(config["paths"]["artifact_dir"], exist_ok=True)
@@ -43,7 +38,6 @@ def main():
     print(f"Inference output size: {len(output_df)} rows")
     print(f"Artifacts saved to: {config['paths']['artifact_dir']}")
     print(f"Predictions saved to: {config['paths']['output_dir']}")
-
 
 if __name__ == "__main__":
     main()

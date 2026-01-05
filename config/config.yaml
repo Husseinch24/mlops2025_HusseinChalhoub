@@ -1,0 +1,10 @@
+paths:
+  train_csv: "src/ml_project/data/train.csv"
+  test_csv: "src/ml_project/data/test.csv"
+  artifact_dir: "artifacts/"
+  output_dir: "outputs/"
+ 
+train:
+  test_size: 0.2
+  seed: 42
+  metric: "rmse"
