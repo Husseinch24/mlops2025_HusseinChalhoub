@@ -1,24 +1,17 @@
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from scipy import sparse
 from sklearn.feature_extraction import FeatureHasher
 
 
 class FeatureEngineer:
-    """
-    Feature engineering for NYC Taxi Trip Duration.
-    - Distance calculation
-    - Datetime enrichment
-    - Categorical encoding (OneHot or Hashing)
-    - Numeric scaling
-    """
-
     def __init__(self, max_ohe_cardinality=50, n_hash_bins=128):
-        self._encoder = None
-        self._scaler = None
         self.max_ohe_cardinality = max_ohe_cardinality
         self.n_hash_bins = n_hash_bins
+        self._encoder = None
+        self._scaler = None
+        self._cat_columns_ = None
+        self._num_columns_ = None
 
     # ---------------- Distance ----------------
     @staticmethod
@@ -52,67 +45,61 @@ class FeatureEngineer:
         return df
 
     # ---------------- Categorical ----------------
-    def transform_categoricals(self, df: pd.DataFrame, fit: bool = False) -> sparse.csr_matrix | None:
-        cat_cols = df.select_dtypes(include=["object"]).columns.tolist()
+    def transform_categoricals(self, df: pd.DataFrame, fit: bool = False) -> pd.DataFrame:
+        df = df.copy()
+        cat_cols = df.select_dtypes(include="object").columns.tolist()
+
         if not cat_cols:
-            return None
+            return pd.DataFrame(index=df.index)
 
-        df_cat = df[cat_cols].fillna("__MISSING__").astype(str)
+        df_cat = df[cat_cols].fillna("Unknown").astype(str)
 
-        # Low cardinality -> OneHotEncoder
-        low_card_cols = [c for c in cat_cols if df[c].nunique() <= self.max_ohe_cardinality]
-        high_card_cols = [c for c in cat_cols if df[c].nunique() > self.max_ohe_cardinality]
+        if fit or self._encoder is None:
+            self._encoder = OneHotEncoder(handle_unknown="ignore", sparse=False)
+            self._encoder.fit(df_cat)
+            self._cat_columns_ = self._encoder.get_feature_names_out(cat_cols)
 
-        features = []
+        encoded = self._encoder.transform(df_cat)
 
-        if low_card_cols:
-            df_low = df_cat[low_card_cols]
-            if fit or self._encoder is None:
-                self._encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=True)
-                features.append(self._encoder.fit_transform(df_low))
-            else:
-                features.append(self._encoder.transform(df_low))
-
-        if high_card_cols:
-            df_high = df_cat[high_card_cols]
-            hasher = FeatureHasher(n_features=self.n_hash_bins, input_type='string')
-            hashed = hasher.transform(df_high.astype(str).values)
-            features.append(hashed)
-
-        if features:
-            return sparse.hstack(features, format="csr")
-        return None
+        return pd.DataFrame(encoded, columns=self._cat_columns_, index=df.index)
 
     # ---------------- Numeric ----------------
-    def normalize_numeric(self, df: pd.DataFrame, fit: bool = False) -> np.ndarray | None:
-        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        if not numeric_cols:
-            return None
+    def normalize_numeric(self, df: pd.DataFrame, fit: bool = False) -> pd.DataFrame:
+        df = df.copy()
+        num_cols = df.select_dtypes(include=np.number).columns.tolist()
+
+        if not num_cols:
+            return pd.DataFrame(index=df.index)
+
         if fit or self._scaler is None:
             self._scaler = StandardScaler()
-            return self._scaler.fit_transform(df[numeric_cols])
-        return self._scaler.transform(df[numeric_cols])
+            self._scaler.fit(df[num_cols])
+            self._num_columns_ = num_cols
+
+        scaled = self._scaler.transform(df[self._num_columns_])
+        return pd.DataFrame(scaled, columns=self._num_columns_, index=df.index)
 
     # ---------------- Full pipeline ----------------
-    def feature_engineering(self, df: pd.DataFrame, fit: bool = False, is_train: bool = True):
-        print(f"[FeatureEngineer] Starting feature engineering. Fit={fit}, Rows={len(df)}")
+    def feature_engineering(
+    self,
+    df: pd.DataFrame,
+    fit: bool = False,
+    save: bool = False,
+    is_train: bool = True,
+):
+
         df = self.add_distance_column(df)
         df = self.enrich_datetime(df)
 
         y = None
         if "trip_duration" in df.columns:
             y = df["trip_duration"].copy()
-            df = df.drop(columns=["trip_duration"], errors="ignore")
+            df = df.drop(columns=["trip_duration"])
 
-        numeric_scaled = self.normalize_numeric(df, fit=fit)
-        cat_encoded = self.transform_categoricals(df, fit=fit)
+        num_df = self.normalize_numeric(df, fit=fit)
+        cat_df = self.transform_categoricals(df, fit=fit)
 
-        features = []
-        if numeric_scaled is not None:
-            features.append(sparse.csr_matrix(numeric_scaled))
-        if cat_encoded is not None:
-            features.append(cat_encoded)
+        X = pd.concat([num_df, cat_df], axis=1)
+        cols = X.columns.tolist()
 
-        X_sparse = sparse.hstack(features, format="csr") if features else None
-        print(f"[FeatureEngineer] Completed feature engineering. X shape={X_sparse.shape if X_sparse is not None else None}, y length={len(y) if y is not None else 'None'}")
-        return X_sparse, y, df
+        return X, y, cols
