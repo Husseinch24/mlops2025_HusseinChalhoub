@@ -1,64 +1,42 @@
 import joblib
-import mlflow
-
 from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from scipy import sparse
+import numpy as np
+from typing import Tuple
 
 
 class RegressionTrainer:
-    """
-    End-to-end regression training, evaluation, selection, and persistence.
-    """
-
     DEFAULT_CONFIG = {
         "linear": {},
         "ridge": {"alpha": 1.0},
-        "rf": {"n_estimators": 10, "max_depth": 12, "n_jobs": -1},
-        "gb": {"n_estimators": 10, "max_depth": 3, "learning_rate": 0.1},
+        "rf": {"n_estimators": 50, "max_depth": 12, "n_jobs": -1},
+        "gb": {"n_estimators": 50, "max_depth": 3, "learning_rate": 0.1},
     }
 
-    def __init__(
-        self,
-        metric: str = "mae",
-        config: dict | None = None,
-        experiment_name: str = "NYC-Taxi-Trip-ML",
-    ):
+    def __init__(self, metric="mae", config=None):
         self.metric = metric
         self.config = config or self.DEFAULT_CONFIG
-        self.experiment_name = experiment_name
-
         self.best_model = None
         self.best_model_name = None
-        self.best_score = self._initialize_score(metric)
+        self.best_score = float("inf") if metric in ("mae", "rmse") else -float("inf")
+        self.model_metrics = {}
 
-        mlflow.set_experiment(self.experiment_name)
-
-    # ------------------------------------------------------------------
-    # Metrics
-    # ------------------------------------------------------------------
     @staticmethod
     def compute_metrics(y_true, y_pred):
         mae = mean_absolute_error(y_true, y_pred)
-
-        try:
-            rmse = mean_squared_error(y_true, y_pred, squared=False)
-        except TypeError:
-            rmse = mean_squared_error(y_true, y_pred) ** 0.5
-
-        return {
-            "mae": mae,
-            "rmse": rmse,
-            "r2": r2_score(y_true, y_pred),
-        }
+        rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+        r2 = r2_score(y_true, y_pred)
+        return {"mae": mae, "rmse": rmse, "r2": r2}
 
     def evaluate(self, model, X, y):
-        predictions = model.predict(X)
-        return self.compute_metrics(y, predictions)
+        if sparse.issparse(X):
+            X_eval = X.toarray()
+        else:
+            X_eval = X
+        return self.compute_metrics(y, model.predict(X_eval))
 
-    # ------------------------------------------------------------------
-    # Model factory
-    # ------------------------------------------------------------------
     def build_models(self):
         return {
             "linear": LinearRegression(**self.config.get("linear", {})),
@@ -67,53 +45,46 @@ class RegressionTrainer:
             "gb": GradientBoostingRegressor(**self.config.get("gb", {})),
         }
 
-    # ------------------------------------------------------------------
-    # Model selection logic
-    # ------------------------------------------------------------------
-    @staticmethod
-    def _is_better(metric, candidate, best):
+    def _is_better(self, metric, candidate, best):
         if metric in ("mae", "rmse"):
             return candidate < best
         return candidate > best
 
-    @staticmethod
-    def _initialize_score(metric):
-        return float("inf") if metric in ("mae", "rmse") else -float("inf")
-
-    # ------------------------------------------------------------------
-    # Training pipeline
-    # ------------------------------------------------------------------
-    def train(self, X_train, y_train, X_valid, y_valid):
+    def train(self, X_train, y_train, X_valid, y_valid) -> Tuple[object, str]:
         models = self.build_models()
 
+        # Only convert to dense for tree-based models if features < 2000
+        n_features = X_train.shape[1]
+        X_train_dense = X_train.toarray() if sparse.issparse(X_train) and n_features <= 2000 else X_train
+        X_valid_dense = X_valid.toarray() if sparse.issparse(X_valid) and n_features <= 2000 else X_valid
+
         for name, model in models.items():
-            print(f"Training model: {name}")
+            print(f"[Trainer] Training model: {name}")
+            if name in ["rf", "gb"] and sparse.issparse(X_train):
+                if n_features > 2000:
+                    print(f"⚠️ Skipping {name}: too many features for dense tree models ({n_features})")
+                    continue
+                X_tr, X_val = X_train_dense, X_valid_dense
+            else:
+                X_tr, X_val = X_train, X_valid
 
-            with mlflow.start_run(run_name=name):
-                mlflow.log_params(self.config.get(name, {}))
-
-                model.fit(X_train, y_train)
-                metrics = self.evaluate(model, X_valid, y_valid)
-
-                for key, value in metrics.items():
-                    mlflow.log_metric(key, value)
-
-                score = metrics[self.metric]
-                if self._is_better(self.metric, score, self.best_score):
+            try:
+                model.fit(X_tr, y_train)
+                metrics = self.evaluate(model, X_val, y_valid)
+                self.model_metrics[name] = metrics
+                if self._is_better(self.metric, metrics[self.metric], self.best_score):
                     self.best_model = model
-                    self.best_score = score
                     self.best_model_name = name
+                    self.best_score = metrics[self.metric]
+            except Exception as e:
+                print(f"⚠️ Training failed for {name}: {e}")
 
-        print(
-            f"Best model = {self.best_model_name} | "
-            f"{self.metric.upper()} = {self.best_score:.4f}"
-        )
-
+        print(f"[Trainer] Best model = {self.best_model_name} | {self.metric.upper()} = {self.best_score:.4f}")
+        print("[Trainer] All model metrics:")
+        for k, v in self.model_metrics.items():
+            print(f" - {k}: {v}")
         return self.best_model, self.best_model_name
 
-    # ------------------------------------------------------------------
-    # Persistence
-    # ------------------------------------------------------------------
     @staticmethod
     def save_model(model, filepath="best_model.pkl"):
         joblib.dump(model, filepath)
